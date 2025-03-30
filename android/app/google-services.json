@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "660147494084",
+    "project_id": "dadnv2",
+    "storage_bucket": "dadnv2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:660147494084:android:691384d896ceabb439fd91",
+        "android_client_info": {
+          "package_name": "com.example.dadnv2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDrAGwwKNU_cc0zzIL0SSlT_d7e9ZFv8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
