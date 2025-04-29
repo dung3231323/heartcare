@@ -20,7 +20,7 @@ class SplashScreen extends StatelessWidget {
                 Column(
                   children: const [
                     Text(
-                      'Welcome to',
+                      'Xin chào',
                       style: TextStyle(fontSize: 20, color: Colors.black54),
                     ),
                     SizedBox(height: 5),
@@ -64,7 +64,7 @@ class SplashScreen extends StatelessWidget {
                         ),
                       ),
                       child: const Text(
-                        'Sign Up',
+                        'Đăng ký',
                         style: TextStyle(fontSize: 16, color: Colors.white),
                       ),
                     ),
@@ -87,7 +87,7 @@ class SplashScreen extends StatelessWidget {
                         side: const BorderSide(color: Colors.deepPurple),
                       ),
                       child: const Text(
-                        'Login',
+                        'Đăng nhập',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.deepPurple,

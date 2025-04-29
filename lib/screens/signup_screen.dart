@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'login_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -17,26 +18,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   final _auth = FirebaseAuth.instance;
 
-  // ✅ Hàm kiểm tra hợp lệ đầu vào
   bool validateInputs() {
     final fullName = fullNameController.text.trim();
     final email = emailController.text.trim();
     final password = passwordController.text;
 
     if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
-      showMessage("Please fill in all fields");
+      showMessage("Vui lòng điền đầy đủ thông tin");
       return false;
     }
 
-    // Regex kiểm tra định dạng email
     final emailRegex = RegExp(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$");
     if (!emailRegex.hasMatch(email)) {
-      showMessage("Invalid email format");
+      showMessage("Định dạng email không hợp lệ");
       return false;
     }
 
     if (password.length < 8) {
-      showMessage("Password must be at least 8 characters");
+      showMessage("Mật khẩu phải có ít nhất 8 ký tự");
       return false;
     }
 
@@ -61,11 +60,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
       await _auth.currentUser?.updateDisplayName(fullNameController.text.trim());
 
-      showMessage("Sign Up successful");
-
-      // TODO: Navigate to main screen or login
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
     } on FirebaseAuthException catch (e) {
-      showMessage(e.message ?? "Registration failed");
+      showMessage(e.message ?? "Đăng ký thất bại");
     } finally {
       setState(() => isLoading = false);
     }
@@ -81,12 +83,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
             child: Column(
               children: [
                 const Text(
-                  "Hello Beautiful",
+                  "Xin chào",
                   style: TextStyle(fontSize: 22, color: Colors.black54),
                 ),
                 const SizedBox(height: 5),
                 const Text(
-                  "Sign Up",
+                  "Đăng ký",
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
@@ -100,7 +102,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 TextField(
                   controller: fullNameController,
                   decoration: const InputDecoration(
-                    labelText: 'Full Name',
+                    labelText: 'Họ và tên',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -119,7 +121,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   controller: passwordController,
                   obscureText: !isPasswordVisible,
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'Mật khẩu',
                     border: const OutlineInputBorder(),
                     suffixIcon: IconButton(
                       icon: Icon(isPasswordVisible
@@ -149,7 +151,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     child: isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text(
-                      'Sign Up',
+                      'Đăng ký',
                       style: TextStyle(fontSize: 16, color: Colors.white),
                     ),
                   ),
@@ -159,13 +161,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("Already have an account?"),
+                    const Text("Bạn đã có tài khoản?"),
                     TextButton(
                       onPressed: () {
-                        Navigator.pop(context);
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (context) => const LoginScreen()),
+                        );
                       },
                       child: const Text(
-                        "Login",
+                        "Đăng nhập",
                         style: TextStyle(color: Colors.deepPurple),
                       ),
                     ),

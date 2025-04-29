@@ -1,8 +1,17 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:xml/xml.dart' as xml;
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
-import 'chat_screen.dart'; 
-// import 'chart_screen.dart'; // placeholder nếu bạn có
-// import 'profile_screen.dart'; // placeholder nếu bạn có
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'chat_screen.dart';
+import 'predict_screen.dart';
+import 'profile_screen.dart';
+import 'prediction_history_screen.dart';
+import 'chart_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -13,20 +22,132 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  List<Map<String, dynamic>> monthlyMaxes = [];
+  Map<String, dynamic>? overallMax;
+  bool isLoading = false;
+
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
+
+  Future<void> importFile() async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final XFile? file = await openFile(
+        acceptedTypeGroups: [XTypeGroup(label: 'XML', extensions: ['xml'])],
+      );
+      if (file != null) {
+        final filePath = file.path;
+        final data = await compute(processXmlFile, filePath);
+
+        setState(() {
+          monthlyMaxes = List<Map<String, dynamic>>.from(data['monthlyMaxes']);
+          overallMax = data['overallMax'];
+        });
+
+        await saveHeartRateData(data['monthlyMaxes'], data['overallMax']);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi xử lý file: $e')),
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> saveHeartRateData(List<dynamic> monthlyMaxes, Map<String, dynamic> overallMax) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bạn chưa đăng nhập')),
+      );
+      return;
+    }
+    try {
+      await _firestore.collection('heart_rate_data').add({
+        'userId': user.uid,
+        'timestamp': FieldValue.serverTimestamp(),
+        'overallMax': overallMax,
+        'monthlyMaxes': monthlyMaxes,
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã lưu dữ liệu thành công')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi lưu dữ liệu: $e')),
+      );
+    }
+  }
+
+  static Future<Map<String, dynamic>> processXmlFile(dynamic filePath) async {
+    final file = File(filePath);
+    final xmlString = await file.readAsString();
+    final document = xml.XmlDocument.parse(xmlString);
+
+    final monthlyData = <String, List<Map<String, dynamic>>>{};
+
+    for (final record in document.findAllElements('Record')) {
+      final startDateStr = record.getAttribute('startDate');
+      if (startDateStr != null) {
+        final startDate = DateTime.parse(startDateStr);
+        final monthKey = '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}';
+        final dateStr = startDate.toIso8601String().split('T')[0];
+
+        for (final bpmElem in record.findAllElements('InstantaneousBeatsPerMinute')) {
+          final time = bpmElem.getAttribute('time');
+          final bpm = int.parse(bpmElem.getAttribute('bpm') ?? '0');
+          monthlyData.putIfAbsent(monthKey, () => []).add({
+            'date': dateStr,
+            'time': time,
+            'bpm': bpm,
+          });
+        }
+      }
+    }
+
+    final monthlyMaxes = <Map<String, dynamic>>[];
+    Map<String, dynamic>? overallMax;
+
+    for (var month in monthlyData.keys) {
+      var entries = monthlyData[month]!;
+      if (entries.isNotEmpty) {
+        var maxEntry = entries.fold(
+          entries.first,
+          (max, e) => e['bpm'] > max['bpm'] ? e : max,
+        );
+        monthlyMaxes.add({
+          'month': month,
+          'date': maxEntry['date'],
+          'time': maxEntry['time'],
+          'bpm': maxEntry['bpm'],
+        });
+        if (overallMax == null || maxEntry['bpm'] > overallMax['bpm']) {
+          overallMax = maxEntry;
+        }
+      }
+    }
+
+    return {'monthlyMaxes': monthlyMaxes, 'overallMax': overallMax};
+  }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now().toUtc().add(const Duration(hours: 7));
     final greeting = getGreeting(now);
     final icon = getWeatherIcon(now);
-    final days = List.generate(6, (i) => now.add(Duration(days: i)));
+    final startOfWeek = now.subtract(Duration(days: now.weekday % 7));
+    final days = List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
 
-    // Danh sách màn hình tương ứng bottom nav
     final List<Widget> screens = [
       _buildHomeScreen(now, greeting, icon, days),
-      const Center(child: Text("Chart Screen")), // thay bằng ChartScreen()
-      ChatScreen(), // dùng UI bạn đã xây dựng
-      const Center(child: Text("Profile Screen")), // thay bằng ProfileScreen()
+      HeartChartsScreen(),
+      ChatScreen(),
+      const ProfilePage(),
     ];
 
     return Scaffold(
@@ -43,10 +164,10 @@ class _MainScreenState extends State<MainScreen> {
           });
         },
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Chart'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Trang chủ'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Biểu đồ'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Trò chuyện'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Hồ sơ'),
         ],
       ),
     );
@@ -59,24 +180,16 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Greeting
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      "Manh Dung,",
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
+                    const Text("Manh Dung,", style: TextStyle(fontSize: 16, color: Colors.grey)),
                     Text(
                       greeting,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                   ],
                 ),
@@ -94,121 +207,137 @@ class _MainScreenState extends State<MainScreen> {
               ],
             ),
             const SizedBox(height: 20),
-
-            // Sleep notification box
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFB39DDB),
+                color: Colors.deepPurple,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text.rich(
                 TextSpan(
                   children: [
-                    TextSpan(
-                      text: "You have slept ",
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    TextSpan(
-                      text: "09:30 ",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    TextSpan(
-                      text: "that is above your ",
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    TextSpan(
-                      text: "recommendation",
-                      style: TextStyle(
-                        color: Colors.white,
-                        decoration: TextDecoration.underline,
-                        fontSize: 16,
-                      ),
-                    ),
+                    TextSpan(text: "Bạn đã ngủ ", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    TextSpan(text: "10 tiếng, ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    TextSpan(text: "cao hơn mức khuyến nghị", style: TextStyle(color: Colors.white, fontSize: 16)),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 30),
-
-            // Calendar
-            const Text(
-              "Calendar",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
+            const Text("Lịch", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: days.map((day) {
-                final weekday = DateFormat.E().format(day);
+                final weekday = DateFormat.E('vi_VN').format(day);
                 final dateStr = DateFormat.d().format(day);
                 final isActive = day.day == now.day;
                 return _dateItem(weekday, dateStr, isActive);
               }).toList(),
             ),
             const SizedBox(height: 30),
-
-            // Monthly changes
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _changeCard("Monthly Change", "+26%", Colors.green),
-                _changeCard("Monthly Change", "-30%", Colors.red),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PredictFormScreen()));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Icon(Icons.favorite, size: 32, color: Colors.deepPurple),
+                          SizedBox(height: 8),
+                          Text("Dự báo sức khỏe", style: TextStyle(fontWeight: FontWeight.bold)),
+                          SizedBox(height: 4),
+                          Text("Xem nguy cơ tim mạch"),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PredictionHistoryScreen()));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Icon(Icons.history, size: 32, color: Colors.deepPurple),
+                          SizedBox(height: 8),
+                          Text("Lịch sử dự đoán", style: TextStyle(fontWeight: FontWeight.bold)),
+                          SizedBox(height: 4),
+                          Text("Xem lại các lần đã dự đoán"),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 30),
-
-            // Heart health card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF2F2F2),
-                borderRadius: BorderRadius.circular(16),
+            const Text("Phân tích nhịp tim", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: importFile,
+              icon: const Icon(Icons.file_upload),
+              label: const Text("Chọn file nhịp tim từ thiết bị"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 50),
               ),
-              child: Row(
-                children: [
-                  Expanded(
+            ),
+            const SizedBox(height: 20),
+            isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : monthlyMaxes.isEmpty
+                ? const Text("Chưa có dữ liệu. Vui lòng tải file XML.", style: TextStyle(color: Colors.grey))
+                : Container(
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          "Have a problem",
-                          style: TextStyle(fontSize: 16, color: Colors.black54),
-                        ),
-                        Text(
-                          "Heart?",
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple,
+                      children: [
+                        if (overallMax != null)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Nhịp tim cao nhất tổng thể:", style: TextStyle(fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Text("${overallMax!['bpm']} nhịp/phút - Ngày ${overallMax!['date']} lúc ${overallMax!['time']}", style: TextStyle()),
+                              const Divider(height: 24, thickness: 1),
+                            ],
                           ),
-                        ),
-                        SizedBox(height: 10),
-                        ElevatedButton(
-                          onPressed: null,
-                          child: Text("Consult"),
-                        ),
+                        const Text("Nhịp tim cao nhất từng tháng:", style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 10),
+                        ...monthlyMaxes.map((entry) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                "Tháng ${entry['month']} : ${entry['bpm']} nhịp/phút - ${entry['date']} lúc ${entry['time']}",
+                              ),
+                            )),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(
-                      'assets/images/consult.png',
-                      height: 100,
-                      width: 100,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -238,40 +367,16 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _changeCard(String title, String value, Color color) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F8F8),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: TextStyle(fontSize: 22, color: color, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Icon(Icons.show_chart, color: color),
-        ],
-      ),
-    );
-  }
-
   String getGreeting(DateTime now) {
     final hour = now.hour;
-    if (hour < 12) return "Good Morning";
-    if (hour < 18) return "Good Afternoon";
-    return "Good Evening";
+    if (hour < 10) return "Chào buổi sáng";
+    if (hour < 16) return "Chào buổi chiều";
+    return "Chào buổi tối";
   }
 
   Icon getWeatherIcon(DateTime now) {
     final hour = now.hour;
-    if (hour >= 6 && hour < 18) {
+    if (hour >= 6 && hour < 16) {
       return const Icon(Icons.wb_sunny, color: Colors.orange);
     } else {
       return const Icon(Icons.nights_stay, color: Colors.indigo);

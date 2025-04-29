@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'screens/splash_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
-
+import 'firebase_options.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // Bắt buộc
-  await Firebase.initializeApp(); // ✅ KHỞI TẠO FIREBASE
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting(); // <-- không truyền 'vi_VN'
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

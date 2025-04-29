@@ -31,6 +31,16 @@ dependencies:
   flutter:
     sdk: flutter
   intl: ^0.18.1
+  http: ^0.13.6
+  flutter_markdown: ^0.6.17
+  cloud_firestore: 5.6.5
+  file_selector: ^1.0.3
+  xml: ^6.3.0
+  fl_chart: ^0.64.0
+
+
+
+
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -91,3 +101,7 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+fonts:
+  - family: Roboto
+    fonts:
+      - asset: fonts/Roboto-Regular.ttf
